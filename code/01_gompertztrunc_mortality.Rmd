@@ -1,0 +1,234 @@
+---
+title: "R Notebook"
+---
+
+```{r}
+library(tidyverse)
+library(data.table)
+library(here)
+library(cowplot)
+```
+
+
+```{r}
+dmf <- fread(here("data/censoc_dmf_v2.1_linked.csv"))
+```
+
+
+```{r}
+dmf <- dmf %>% 
+  janitor::clean_names() %>% 
+  mutate(race = case_when(
+    race == 1 ~ "White Americans",
+    race == 2 ~ "Black Americans"
+  )) %>% 
+  filter(link_abe_exact_conservative == 1) %>% 
+  filter(bpl < 15000)
+
+## function to camp ipums codes to years of education 
+recode_education <- function(df) {
+  df <- df  %>%
+    mutate(educ_yrs = case_when(
+      educd == 2 ~ 0,
+      educd == 14 ~ 1,
+      educd == 15 ~ 2,
+      educd == 16 ~ 3,
+      educd == 17 ~ 4,
+      educd == 22 ~ 5,
+      educd == 23 ~ 6,
+      educd == 25 ~ 7,
+      educd == 26 ~ 8,
+      educd == 30 ~ 9,
+      educd == 40 ~ 10,
+      educd == 50 ~ 11,
+      educd == 60 ~ 12,
+      educd == 70 ~ 13,
+      educd == 80 ~ 14,
+      educd == 90 ~ 15,
+      educd == 100 ~ 16,
+      educd == 110 ~ 17,
+      educd == 111 ~ 17,
+      educd == 112 ~ 17,
+      educd == 113 ~ 17
+    ))
+  
+  return(df)
+}
+
+dmf <- dmf %>% 
+  recode_education()
+```
+
+
+```{r}
+dmf_restrict <- dmf %>% 
+  filter(byear %in% 1910)
+  
+dmf_white_high <- dmf_restrict %>% filter(race == "White Americans" & educ_yrs >= 10)
+dmf_white_low <- dmf_restrict %>% filter(race == "White Americans" & educ_yrs  < 10)
+
+dmf_black_high <- dmf_restrict %>% filter(race == "Black Americans" & educ_yrs >= 6)
+dmf_black_low <- dmf_restrict %>% filter(race == "Black Americans" & educ_yrs < 6)
+
+dmf_black <- dmf_restrict %>% filter(race == "Black Americans")
+dmf_white <- dmf_restrict %>% filter(race == "White Americans")
+```
+
+
+```{r}
+gompertz_white <- gompertztrunc::gompertz_mle(death_age ~ 1, data = dmf_white, weight = weight) 
+gompertz_black <- gompertztrunc::gompertz_mle(death_age ~ 1, data = dmf_black, weight = weight)
+```
+
+
+```{r}
+## hx calc
+hx_calc <- function(x, b, M) {
+  hx = b * exp(b*(x - M))
+  return(hx)
+}
+
+white_high <- gompertztrunc::gompertz_mle(death_age ~ 1, data = dmf_white_high, weight = weight) 
+black_high <- gompertztrunc::gompertz_mle(death_age ~ 1, data = dmf_black_high, weight = weight)
+white_low <- gompertztrunc::gompertz_mle(death_age ~ 1, data = dmf_white_low, weight = weight)
+black_low <- gompertztrunc::gompertz_mle(death_age ~ 1, data = dmf_black_low, weight = weight)
+```
+
+```{r}
+b_black <- gompertz_black$results$coef[[1]]
+M_black <- gompertz_black$results$coef[[2]]
+hx_black <- hx_calc(b = b_black, M = M_black, x = 0:121 + 0.5)
+
+b_white <- gompertz_white$results$coef[[1]]
+M_white <- gompertz_white$results$coef[[2]]
+hx_white<- hx_calc(b = b_white, M = M_white, x = 0:121 + 0.5)
+
+mortality_crossover_1905_1915 <- tibble(year = 0:121, white_mortality = hx_white, black_mortality = hx_black) %>% 
+  pivot_longer(-year) %>% 
+  filter(year %in% 65:100) %>% 
+  ggplot(aes(x = year, y = log(value), color = name, shape = name)) + 
+  geom_point() + 
+  geom_line() + 
+  theme(legend.position = "bottom") + 
+  labs(x = "age",
+       y = "Log(Hx)",
+       title = "Mortality Crossovers (Men)",
+       subtitle = "Cohort of 1910") +
+  ggsci::scale_color_lancet() + 
+  theme_cowplot() + 
+  geom_vline(xintercept  = 90, linetype = "dashed") + 
+   theme(
+     legend.title=element_blank(),
+    legend.position = c(.999, 0.001),
+    legend.justification = c("right", "bottom"),
+    legend.box.just = "right",
+    legend.margin = margin(6, 6, 6, 6),
+    legend.background = element_rect(color = "black", size = .5, linetype = "solid"))
+
+ggsave(plot = mortality_crossover_1905_1915, filename = here("figures/bw_crossover_1910.png"), width = 7, height = 5)
+```
+
+```{r}
+b_black_high <- black_high$results$coef[[1]]
+M_black_high <- black_high$results$coef[[2]]
+hx_black_high <- hx_calc(b = b_black_high, M = M_black_high, x = 0:121 + 0.5)
+
+b_white_high <- white_high$results$coef[[1]]
+M_white_high <- white_high$results$coef[[2]]
+hx_white_high <- hx_calc(b = b_white_high, M = M_white_high, x = 0:121 + 0.5)
+
+tibble(year = 0:121, white_mortality = hx_white_high, black_mortality = hx_black_high) %>% 
+  pivot_longer(-year) %>% 
+  filter(year %in% 75:100) %>% 
+  ggplot(aes(x = year, y = log(value), color = name)) + 
+  geom_point() + 
+  geom_line() + 
+  theme(legend.position = "bottom") + 
+  labs(x = "age",
+       y = "Log(Hx)") + 
+  ggsci::scale_color_lancet() + 
+  theme_cowplot() 
+
+b_black_low <- black_low$results$coef[[1]]
+M_black_low <- black_low$results$coef[[2]]
+hx_black_low <- hx_calc(b = b_black_low, M = M_black_low, x = 0:121 + 0.5)
+
+b_white_low <- white_low$results$coef[[1]]
+M_white_low <- white_low$results$coef[[2]]
+hx_white_low <- hx_calc(b = b_white_low, M = M_white_low, x = 0:121 + 0.5)
+
+bw_crossover_education <- tibble(year = 0:121, white_mortality = hx_white_low, black_mortality = hx_black_low, educ = "No HS") %>% 
+  bind_rows(tibble(year = 0:121, white_mortality = hx_white_high, black_mortality = hx_black_high, educ = "HS")) %>% 
+ pivot_longer(-c(year, educ)) %>% 
+  filter(year %in% 65:95) %>% 
+  ggplot(aes(x = year, y = log(value), color = name)) + 
+  geom_point() + 
+  geom_line() + 
+  theme(legend.position = "bottom") + 
+  labs(x = "age",
+       y = "Log(Hx)") + 
+  ggsci::scale_color_lancet() + 
+  theme_cowplot() + 
+  theme(legend.position = "bottom") + 
+  facet_wrap(~educ)
+
+ggsave(plot = bw_crossover_education, filename = here("figures/bw_crossover_1910_educ.png"), width = 12, height = 5)
+```
+
+
+```{r}
+dmf_restrict_inc <- dmf %>% 
+  filter(byear %in% 1905:1915) %>% 
+  filter(incwage %in% 1:5030)
+  
+dmf_white_high <- dmf_restrict_inc %>% filter(race == "White Americans" & incwage >= 470)
+dmf_white_low <- dmf_restrict_inc %>% filter(race == "White Americans" & incwage < 470)
+
+dmf_black_high <- dmf_restrict_inc %>% filter(race == "Black Americans" & incwage >= 470)
+dmf_black_low <- dmf_restrict_inc %>% filter(race == "Black Americans" & incwage < 470)
+```
+
+```{r}
+white_high <- gompertztrunc::gompertz_mle(death_age ~ 1, data = dmf_white_high) 
+black_high <- gompertztrunc::gompertz_mle(death_age ~ 1, data = dmf_black_high)
+
+white_low <- gompertztrunc::gompertz_mle(death_age ~ 1, data = dmf_white_low)
+black_low <- gompertztrunc::gompertz_mle(death_age ~ 1, data = dmf_black_low)
+
+b_black_high <- black_high$results$coef[[1]]
+M_black_high <- black_high$results$coef[[2]]
+hx_black_high <- hx_calc(b = b_black_high, M = M_black_high, x = 0:121 + 0.5)
+
+b_white_high <- white_high$results$coef[[1]]
+M_white_high <- white_high$results$coef[[2]]
+hx_white_high <- hx_calc(b = b_white_high, M = M_white_high, x = 0:121 + 0.5)
+
+tibble(year = 0:121, white_mortality = hx_white_high, black_mortality = hx_black_high) %>% 
+  pivot_longer(-year) %>% 
+  filter(year %in% 75:100) %>% 
+  ggplot(aes(x = year, y = log(value), color = name)) + 
+  geom_point() + 
+  geom_line() + 
+  theme(legend.position = "bottom") + 
+  labs(x = "age",
+       y = "Log(Hx)") + 
+  ggsci::scale_color_lancet() + 
+  theme_cowplot() 
+
+b_black_low <- black_low$results$coef[[1]]
+M_black_low <- black_low$results$coef[[2]]
+hx_black_low <- hx_calc(b = b_black_low, M = M_black_low, x = 0:121 + 0.5)
+
+b_white_low <- white_low$results$coef[[1]]
+M_white_low <- white_low$results$coef[[2]]
+hx_white_low <- hx_calc(b = b_white_low, M = M_white_low, x = 0:121 + 0.5)
+
+tibble(year = 0:121, white_mortality = hx_white_low, black_mortality = hx_black_low) %>% 
+  pivot_longer(-year) %>% 
+  filter(year %in% 75:100) %>% 
+  ggplot(aes(x = year, y = log(value), color = name)) + 
+  geom_point() + 
+  geom_line() + 
+  theme_cowplot() 
+```
+

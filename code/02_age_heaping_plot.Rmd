@@ -1,0 +1,38 @@
+---
+title: "R Notebook"
+---
+
+```{r}
+install.packages("demotools")
+library(demotools)
+library(tidyverse)
+library(scales)
+```
+
+
+```{r}
+tabulated_byear <- dmf %>% 
+  filter(byear %in% c(1884:1920)) %>% 
+  group_by(race) %>% 
+  count(byear)
+
+
+tabulated_plot <- tabulated_byear %>% 
+  filter(!is.na(race)) %>% 
+  mutate(alpha = case_when(byear %in% seq(1885, 1920, by = 5) ~ 1,
+                           byear == 1884 ~ 0,
+                           TRUE ~ 0.05)) %>% 
+  ggplot(aes(x = byear, y = n, alpha = alpha)) + 
+  geom_col(color = "black", fill = "grey47") + 
+  scale_y_continuous(label = comma) + 
+  cowplot::theme_cowplot() + 
+  facet_wrap(~race, ncol = 1, scales="free") + 
+  theme(legend.position = "NULL") + 
+  labs(x = "Birth Year",
+       y = "Count of Deaths")
+
+ggsave(plot = tabulated_plot, filename = here("figures/age_heaping.png"), width = 8, height = 6)
+```
+
+
+

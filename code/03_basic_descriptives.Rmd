@@ -1,0 +1,29 @@
+---
+title: "R Notebook"
+author: Casey Breen
+---
+
+
+```{r}
+death_data <- dmf %>% 
+  filter(!is.na(race)) %>%
+  filter(byear == 1915 & !is.na(educ_yrs)) %>%
+  mutate(death_category = case_when(death_age >= 85 ~ "Death Age 85+",
+                               TRUE ~ "Death Age <85")) %>% 
+  mutate(hs = case_when(educ_yrs >= 12 ~ "HS",
+                        TRUE ~ "No HS")) %>% 
+  group_by(race, death_category, hs) %>% 
+  summarize(death_age_avg = mean(death_age),
+            death_age_se = sd(death_age) / sqrt(n()),
+            n = n())
+
+
+death_data %>% 
+  ggplot(aes(x = race, y = death_age_avg, ymin = death_age_avg - 1.96* death_age_se, ymax = death_age_avg + 1.96* death_age_se)) + 
+  geom_pointrange() + 
+  theme_bw() +
+  facet_grid(vars(death_category), vars(hs), scales = "free")
+```
+
+
+
