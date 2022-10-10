@@ -1,0 +1,89 @@
+---
+title: "R Notebook"
+output: html_notebook
+---
+
+
+```{r}
+## library packages 
+library(gompertztrunc)
+library(tidyverse)
+```
+
+```{r}
+test1 <- gompertztrunc_simu(n=10000000, a0 = .00001, b = .12, formula = death_age ~ sex,
+coefs = c('sex'=.5), dummy=c(TRUE)) 
+
+df1 <- test1 %>% 
+  mutate(type = "advantage")
+
+test2 <- gompertztrunc_simu(n=10000000, a0 = .00002, b = .12, formula = death_age ~ sex,
+coefs = c('sex'=.5), dummy=c(TRUE)) 
+
+df2 <- test1 %>% 
+  filter(sex == 0) %>% 
+  bind_rows(test2 %>% filter(sex == 1)) %>% 
+  mutate(type = "disadvantaged")
+
+test1_hx <- df1 %>% 
+  mutate(death_age = round(death_age)) %>% 
+ filter(death_age %in% 50:150) %>% 
+  group_by(death_age) %>% 
+  summarize(weighted_total = n()) %>% 
+  mutate(lx = sum(weighted_total) - cumsum(weighted_total)) %>% 
+  mutate(mx = weighted_total/(lx + lead(lx) / 2)) %>% 
+  mutate(hazard = log(mx)) %>% 
+  mutate(type = "test1")
+
+test2_hx <- df2 %>% 
+  mutate(death_age = round(death_age)) %>% 
+  filter(death_age %in% 50:150) %>% 
+  group_by(death_age) %>% 
+  summarize(weighted_total = n()) %>% 
+  mutate(lx = sum(weighted_total) - cumsum(weighted_total)) %>% 
+  mutate(mx = weighted_total/(lx + lead(lx) / 2)) %>% 
+  mutate(hazard = log(mx)) %>% 
+  mutate(type = "test2")
+
+test1_hx %>% 
+  bind_rows(test2_hx) %>% 
+  filter(death_age %in% 60:90) %>% 
+  ggplot(aes(x = death_age, y = hazard, color = type)) + 
+  geom_line() + 
+  cowplot::theme_cowplot() + 
+  geom_point() + 
+  theme(legend.position = "bottom")
+```
+
+```{r}
+test_df <- df1 %>% 
+  bind_rows(df2)
+  
+df_list <- list()
+for (i in min(test_df$death_age):max(test_df$death_age)){
+
+    ## covariates  
+    df_list[[i]] <- test_df %>% 
+      filter(death_age >= i) %>% 
+      group_by(type, sex) %>% 
+      summarize(n = n()) %>% 
+      group_by(type) %>% 
+      mutate(prop = n / sum(n),
+             age = i)
+    
+}
+
+bind_rows(df_list) %>% 
+  mutate(age = floor(age)) %>% 
+  filter(age %in% 50:100) %>% 
+  ggplot(aes(x = age, y = prop, fill = as.factor(sex))) + 
+  geom_area( colour="black") + 
+  scale_fill_viridis_d(alpha = 0.7) + 
+  facet_wrap(~type) + 
+  cowplot::theme_cowplot() + 
+  labs(title = "Education of the living by age") + 
+      scale_y_continuous(labels = scales::percent_format(accuracy = 5L)) + 
+  theme(legend.position = "bottom", legend.title = element_blank()) 
+  
+```
+

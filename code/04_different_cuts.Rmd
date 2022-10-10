@@ -94,7 +94,6 @@ test <- dmf %>%
 
 model <- lm(death_age ~  sei + educ_yrs + incwage + marst + as.factor(occ) + as.factor(byear), data = test)
 
-
 modeling_df <- dmf %>% 
   filter(byear %in% 1890:1905) %>% 
   filter(!is.na(educ_yrs)) %>% 
