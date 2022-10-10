@@ -11,31 +11,19 @@ library(tidyverse)
 ```
 
 ```{r}
-test1 <- gompertztrunc_simu(n=10000000, a0 = .00001, b = .12, formula = death_age ~ sex,
-coefs = c('sex'=.5), dummy=c(TRUE)) 
+test1 <- gompertztrunc_simu(n=1000000, a0 = .000015, b = .1, formula = death_age ~ sex,
+coefs = c('sex'=.5), dummy=c(TRUE)) %>% mutate(death_age = floor(death_age))
 
-df1 <- test1 %>% 
-  mutate(type = "advantage")
+test2 <- gompertztrunc_simu(n=1000000, a0 = .00001, b = .1, formula = death_age ~ sex,
+coefs = c('sex'=.5), dummy=c(TRUE)) %>% mutate(death_age = floor(death_age))
 
-test2 <- gompertztrunc_simu(n=10000000, a0 = .00002, b = .12, formula = death_age ~ sex,
-coefs = c('sex'=.5), dummy=c(TRUE)) 
+test3 <- gompertztrunc_simu(n=1000000, a0 = .00003, b = .1, formula = death_age ~ sex,
+coefs = c('sex'=.5), dummy=c(TRUE)) %>% mutate(death_age = floor(death_age))
 
-df2 <- test1 %>% 
-  filter(sex == 0) %>% 
-  bind_rows(test2 %>% filter(sex == 1)) %>% 
-  mutate(type = "disadvantaged")
+df1 <- test1
+df2 <- bind_rows(test2, test3)
 
-test1_hx <- df1 %>% 
-  mutate(death_age = round(death_age)) %>% 
- filter(death_age %in% 50:150) %>% 
-  group_by(death_age) %>% 
-  summarize(weighted_total = n()) %>% 
-  mutate(lx = sum(weighted_total) - cumsum(weighted_total)) %>% 
-  mutate(mx = weighted_total/(lx + lead(lx) / 2)) %>% 
-  mutate(hazard = log(mx)) %>% 
-  mutate(type = "test1")
-
-test2_hx <- df2 %>% 
+stable_pop <- df1 %>% 
   mutate(death_age = round(death_age)) %>% 
   filter(death_age %in% 50:150) %>% 
   group_by(death_age) %>% 
@@ -43,11 +31,43 @@ test2_hx <- df2 %>%
   mutate(lx = sum(weighted_total) - cumsum(weighted_total)) %>% 
   mutate(mx = weighted_total/(lx + lead(lx) / 2)) %>% 
   mutate(hazard = log(mx)) %>% 
-  mutate(type = "test2")
+  mutate(type = "test1")
 
-test1_hx %>% 
-  bind_rows(test2_hx) %>% 
-  filter(death_age %in% 60:90) %>% 
+crossover_pop <- df2 %>% 
+  mutate(death_age = round(death_age)) %>% 
+  filter(death_age %in% 50:150) %>% 
+  group_by(death_age) %>% 
+  summarize(weighted_total = n()) %>% 
+  mutate(lx = sum(weighted_total) - cumsum(weighted_total)) %>% 
+  mutate(mx = weighted_total/(lx + lead(lx) / 2)) %>% 
+  mutate(hazard = log(mx)) %>% 
+  mutate(type = "combined")
+
+crossover_pop_part1 <- test2 %>% 
+  mutate(death_age = round(death_age)) %>% 
+  filter(death_age %in% 50:150) %>% 
+  group_by(death_age) %>% 
+  summarize(weighted_total = n()) %>% 
+  mutate(lx = sum(weighted_total) - cumsum(weighted_total)) %>% 
+  mutate(mx = weighted_total/(lx + lead(lx) / 2)) %>% 
+  mutate(hazard = log(mx)) %>% 
+  mutate(type = "combined low")
+
+crossover_pop_part2 <- test3 %>% 
+  mutate(death_age = round(death_age)) %>% 
+  filter(death_age %in% 50:150) %>% 
+  group_by(death_age) %>% 
+  summarize(weighted_total = n()) %>% 
+  mutate(lx = sum(weighted_total) - cumsum(weighted_total)) %>% 
+  mutate(mx = weighted_total/(lx + lead(lx) / 2)) %>% 
+  mutate(hazard = log(mx)) %>% 
+  mutate(type = "combined high")
+
+crossover_pop_part1 %>% 
+  bind_rows(crossover_pop_part2) %>% 
+  bind_rows(crossover_pop) %>% 
+  bind_rows(stable_pop) %>% 
+  filter(death_age %in% 0:100) %>% 
   ggplot(aes(x = death_age, y = hazard, color = type)) + 
   geom_line() + 
   cowplot::theme_cowplot() + 

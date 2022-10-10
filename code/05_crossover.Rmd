@@ -1,18 +1,20 @@
 ---
-title: "R Notebook"
+title: "B-W Crossover Paper"
 ---
 
+Summary: Black-White mortality crossover paper 
+
 ```{r}
+## library packages 
 library(tidyverse)
 library(data.table)
 library(here)
 library(cowplot)
 library(broom)
 library(texreg)
-```
 
 
-```{r}
+## read in data 
 dmf <- fread(here("data/censoc_dmf_v2.1_linked.csv")) 
 ```
 
@@ -57,154 +59,54 @@ recode_education <- function(df) {
 }
 
 dmf <- dmf %>% 
-  recode_education()
-```
-
-
-
-```{r}
-dmf_select <- dmf %>% 
-  filter(byear == 1910) %>% 
-  filter(death_age %in% 70:100) %>% 
-  filter(!is.na(educ_yrs) & !is.na(race) & !is.na(sei) & !is.na(ownershp))
-
-
-educ_data <- dmf_select %>% 
-  group_by(race, death_age) %>% 
-  summarize(avg = mean(educ_yrs),
-            se = sd(educ_yrs)/ sqrt(n())) %>% 
-  mutate(type = "Education (Years)")
-
-ownership_data <- dmf_select %>% 
-  group_by(race, death_age) %>% 
-  summarize(avg = mean(ownershp == 1),
-            se = sd(ownershp)/ sqrt(n())) %>% 
-  mutate(type = "Proportion Own Home")
-
-incwage_data <- dmf_select %>% 
-  filter(incwage %in% 1:5001) %>% 
-  group_by(race, death_age) %>% 
-  summarize(avg = mean(incwage),
-            se = sd(incwage)/ sqrt(n())) %>% 
-  mutate(type = "Wage Income (Dollars)")
-
-prestige_data <- dmf_select %>% 
-  group_by(race, death_age) %>% 
-  summarize(avg = mean(sei),
-            se = sd(sei)/ sqrt(n())) %>% 
-  mutate(type = "Occupational Presige")
-
-composition_plots <- bind_rows(educ_data, ownership_data, incwage_data, prestige_data) %>% 
-  ggplot(aes(x = death_age,
-             y = avg, 
-             ymin = avg - 1.96*se,
-             ymax = avg + 1.96*se,
-             color = race)) + 
-  geom_line() +
-  geom_point() + 
-  geom_smooth(method = "lm", se = F) + 
-  theme_cowplot() + 
-  ggsci::scale_color_lancet() + 
-  labs(x = "Death Age",
-       y = "risk score",
-       title = "Average Socioeconomic Characteristics by Age of Death") + 
-  theme(legend.position = "bottom") + 
-  facet_wrap(~type, scales = "free") + 
-  scale_y_continuous(breaks = scales::pretty_breaks(n = 5))
-
-
-ggsave(plot = composition_plots, filename = "../figures/composition_plot_aggregate.png", height = 8, width = 7 )
-```
-
-
-
-
-
-
-
-
-```{r}
-test <- dmf %>% 
-  filter(byear %in% 1911) %>% 
+  recode_education() %>% 
   filter(!is.na(educ_yrs)) %>% 
-  filter(incwage %in% 1:5000) %>% 
-  filter(marst != 3) %>% 
-  filter(!is.na(sei)) %>% 
-  mutate(marst = as.factor(marst))
-
-model <- lm(death_age ~  sei + educ_yrs + incwage + race + marst + empstat + as.factor(occ), data = test)
-
-modeling_df <- dmf %>% 
-  filter(byear %in% 1909:1911) %>% 
-  filter(!is.na(educ_yrs)) %>% 
-  filter(incwage %in% 1:5000) %>% 
-  filter(marst != 3) %>% 
+  filter(incwage %in% 0:5050) %>% 
   filter(!is.na(sei)) %>% 
   mutate(marst = as.factor(marst)) %>% 
-  filter(race == "White Americans" | race == "Black Americans") %>% 
-  group_by(race)
-
-modeling_df <- modeling_df %>% 
-  bind_cols(tibble(score = predict(model, newdata = modeling_df))) %>%
-  group_by(byear) %>% 
-  mutate(risk = 10 - ntile(score, 10))
-
-risk_data <- modeling_df %>% 
-  filter(byear %in% 1910) %>% 
-  filter(!is.na(sei)) %>%
-    filter(!is.na(race)) %>% 
-  group_by(race, death_age) %>% 
-  summarize(risk_avg = mean(risk),
-              se = sd(risk)/ sqrt(n()))
-
-risk_plot <- risk_data %>% 
-  ggplot(aes(x = death_age,
-             y = risk_avg, 
-             ymin = risk_avg - 1.96*se,
-             ymax = risk_avg + 1.96*se,
-             color = race)) + 
-  geom_line() +
-  geom_pointrange() + 
-  geom_smooth(method = "lm") + 
-  theme_cowplot() + 
-  ggsci::scale_color_lancet() + 
-  labs(x = "Death Age",
-       y = "Risk score",
-       title = "Average Risk Score by Age of Death") + 
-  theme(legend.position = "bottom") + 
-  # scale_y_continuous(breaks = seq(3, 9, len = 13), limits = c(3, 8.5)) + 
-  annotate("text", x = 80, y = 75, label= "Slope = -0.114", 
-           color = "#00468BFF", size = 5) + 
-  annotate("text", x = 80, y = 50, label= "Slope = -0.3201", 
-           color = "#ED0000FF", size = 5)
-
-summary(lm(data = risk_data %>% filter(race == "White Americans"), risk_avg ~ death_age), weight = weight)
-
-summary(lm(data = risk_data %>% filter(race == "Black Americans"), risk_avg ~ death_age), weight = weight)
-
-ggsave(plot = risk_plot, filename = "../figures/risk_plot.png", height = 6, width = 5 )
-```
-
-```{r}
-modeling_df <- modeling_df %>%  
-  filter(incwage %in% 0:5050) %>% 
+  filter(marst != 3) %>% 
   mutate(own_home = case_when(
     ownershp == 1 ~ 1,
     TRUE ~ 0
-  )) %>% 
-  mutate(married = case_when(
+  ),
+  married = case_when(
     marst %in% 1:2 ~ 1,
     TRUE ~ 0
-  )) %>% 
-  mutate(employed = case_when(
-    empstat == 1 ~ 1,
+  ),
+  employed = case_when(
+   empstat == 1 ~ 1,
     TRUE ~ 0
-  )) %>% 
-  mutate(south = case_when(
+  ),
+  south = case_when(
     region %in% 31:34 ~ 1,
     TRUE ~ 0
-  )) 
+  ))
+```
 
+```{r}
+dmf_1911 <- dmf %>% 
+  filter(byear %in% 1911)
+
+model_black <- lm(death_age ~ sei + educ_yrs + incwage  + marst + empstat , data = dmf_1911 %>% filter(race == "Black Americans"))
+
+model_white <- lm(death_age ~ sei + educ_yrs + incwage  + marst + empstat , data = dmf_1911 %>% filter(race == "White Americans"))
+
+modeling_df_white <- dmf %>% 
+  filter(race == "White Americans") %>% 
+  filter(byear %in% 1909:1911) %>% 
+  modelr::add_predictions(model = model_white)
+
+modeling_df_black <- dmf %>% 
+  filter(race == "Black Americans") %>% 
+  filter(byear %in% 1909:1911) %>% 
+  modelr::add_predictions(model = model_black)
+
+modeling_df <- bind_rows(modeling_df_white, modeling_df_black) %>% 
+  group_by(race) %>% 
+  mutate(risk = 11-ntile(pred, 10))
+```
+
+```{r}
 results <- list()
 
 for (i in min(modeling_df$death_age):max(modeling_df$death_age)){
@@ -303,6 +205,52 @@ ggsave(plot = education_by_age, filename = "../figures/education_of_living.png",
 ```
 
 
+```{r}
+risk_data_list <- list() 
+
+modeling_df <- modeling_df %>% 
+  mutate(risk_high = case_when(
+    risk >= 6 ~ "low",
+    TRUE ~ "high"
+  ))
+
+for (i in min(modeling_df$death_age):max(modeling_df$death_age)){
+  
+    ## covariates  
+    risk_data_list[[i]] <- modeling_df %>% 
+      filter(death_age >= i) %>% 
+      group_by(race, risk_high) %>% 
+      summarize(n = n()) %>% 
+      group_by(race) %>% 
+      mutate(prop = n / sum(n),
+             age = i) 
+}
+
+risk_by_age <- bind_rows(risk_data_list) %>% 
+  filter(age < 91) %>% 
+  ggplot(aes(x = age, y = prop, fill = as.factor(risk_high))) + 
+  geom_area( colour="black") + 
+  scale_fill_viridis_d(alpha = 0.7) + 
+  facet_wrap(~race) + 
+  theme_cowplot() + 
+  labs(title = "Education of the living by age") + 
+      scale_y_continuous(labels = scales::percent_format(accuracy = 5L)) + 
+  theme(legend.position = "bottom", legend.title = element_blank()) 
+
+
+risk_by_age <- bind_rows(risk_data_list) %>% 
+  filter(age < 91) %>% 
+  filter(risk_high == "high") %>% 
+  ggplot(aes(x = age, y = prop, color = as.factor(race))) + 
+  geom_point() + 
+  geom_line() + 
+  theme_cowplot() + 
+  labs(title = "Education of the living by age") + 
+  theme(legend.position = "bottom", legend.title = element_blank()) 
+
+```
+
+## basic regression 
 
 ```{r}
 df_formodel <- dmf %>%
