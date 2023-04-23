@@ -195,7 +195,7 @@ rep_plot <-  combined_characteristics %>%
   scale_color_manual(name = "", values = c("1940 Census" = "black", 'Censoc-DMF' = "red")) + 
   scale_x_continuous(labels = scales::percent_format(scale = 1)) + 
   theme_bw() +
-  theme(legend.position=c(.915, .95),
+  theme(legend.position=c(.915, .945),
         legend.direction='vertical',
         legend.margin=margin(t=0, unit='cm'),
         legend.box.background = element_rect(colour = "black"),
