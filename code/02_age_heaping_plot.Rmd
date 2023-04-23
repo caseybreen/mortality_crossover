@@ -3,20 +3,19 @@ title: "R Notebook"
 ---
 
 ```{r}
-install.packages("demotools")
-library(demotools)
 library(tidyverse)
 library(scales)
 ```
 
 
 ```{r}
+## tabulated birth year 
 tabulated_byear <- dmf %>% 
   filter(byear %in% c(1884:1920)) %>% 
   group_by(race) %>% 
   count(byear)
 
-
+## create_plot
 tabulated_plot <- tabulated_byear %>% 
   filter(!is.na(race)) %>% 
   mutate(alpha = case_when(byear %in% seq(1885, 1920, by = 5) ~ 1,
@@ -31,7 +30,39 @@ tabulated_plot <- tabulated_byear %>%
   labs(x = "Birth Year",
        y = "Count of Deaths")
 
+## age heaping plot 
 ggsave(plot = tabulated_plot, filename = here("figures/age_heaping.png"), width = 8, height = 6)
+```
+
+```{r}
+tabulated_byear <- dmf %>% 
+  filter(!is.na(race)) %>% 
+  filter(byear %in% c(1884:1920)) %>% 
+  filter(death_age %in% c(0:100)) %>% 
+  mutate(terminal_year = case_when(
+    byear %in% c(1885, 1890, 1895, 1900, 1905, 1910, 1915, 1920) ~ 1,
+    TRUE ~ 0
+  )) %>% 
+  group_by(death_age, race) %>% 
+  summarize(prop = mean(terminal_year))
+
+dmf %>% 
+  filter(!is.na(race)) %>% 
+  filter(byear %in% c(1884:1920)) %>% 
+  filter(death_age %in% c(0:100)) %>% 
+  mutate(terminal_year = case_when(
+    byear %in% c(1885, 1890, 1895, 1900, 1905, 1910, 1915, 1920) ~ 1,
+    TRUE ~ 0
+  )) %>% 
+  summarize(mean(terminal_year))
+
+tabulated_byear %>% 
+  filter(death_age %in% 70:100) %>% 
+  ggplot(aes(x = death_age, y = prop, color = race)) + 
+  geom_point() + 
+  geom_line() + 
+  ylim(0, .5) + 
+  geom_hline(xintercept = .2168, linetype = "dashed")
 ```
 
 

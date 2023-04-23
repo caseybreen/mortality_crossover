@@ -1,24 +1,24 @@
 ---
-title: "R Notebook"
+title: "Black-White Mortality Crossover"
+author: Casey Breen
 ---
 
-Summary: Code to estimate mortality disparities 
+Summary: Code to estimate Black-White mortality disparities 
 
 
 ```{r}
+## library packages 
 library(tidyverse)
 library(data.table)
 library(here)
 library(cowplot)
-```
 
-
-```{r}
+## read in dmf 
 dmf <- fread(here("data/censoc_dmf_v2.1_linked.csv"))
-```
 
-
-```{r}
+## recode race 
+## restrict to conservative matches 
+## restrict to people born in the US 
 dmf <- dmf %>%
   janitor::clean_names() %>%
   mutate(race = case_when(
@@ -28,38 +28,10 @@ dmf <- dmf %>%
   filter(link_abe_exact_conservative == 1) %>%
   filter(bpl < 15000)
 
-## function to camp ipums codes to years of education
-recode_education <- function(df) {
-  df <- df %>%
-    mutate(educ_yrs = case_when(
-      educd == 2 ~ 0,
-      educd == 14 ~ 1,
-      educd == 15 ~ 2,
-      educd == 16 ~ 3,
-      educd == 17 ~ 4,
-      educd == 22 ~ 5,
-      educd == 23 ~ 6,
-      educd == 25 ~ 7,
-      educd == 26 ~ 8,
-      educd == 30 ~ 9,
-      educd == 40 ~ 10,
-      educd == 50 ~ 11,
-      educd == 60 ~ 12,
-      educd == 70 ~ 13,
-      educd == 80 ~ 14,
-      educd == 90 ~ 15,
-      educd == 100 ~ 16,
-      educd == 110 ~ 17,
-      educd == 111 ~ 17,
-      educd == 112 ~ 17,
-      educd == 113 ~ 17
-    ))
 
-  return(df)
-}
-
+## recode education
 dmf <- dmf %>%
-  recode_education()
+  censocdev::recode_education(educ_var = educd) 
 ```
 
 
@@ -67,8 +39,9 @@ dmf <- dmf %>%
 
 
 ```{r}
+## Estimate Black-White mortality crossover
 estimated_mortality_rates <- dmf %>%
-  filter(byear %in% c(1900:1905)) %>%
+  filter(byear %in% c(1890:1905)) %>%
   filter(race == "White Americans" | race == "Black Americans") %>%
   group_by(death_age, race) %>%
   summarize(weighted_total = n()) %>%
@@ -80,9 +53,9 @@ estimated_mortality_rates <- dmf %>%
 pooled_bwcrossover <- estimated_mortality_rates %>%
   filter(death_age %in% c(75:100)) %>%
   ggplot() +
-  geom_point(aes(x = death_age, y = hazard, shape = race, color = race), size = 4) +
   geom_line(aes(x = death_age, y = hazard, color = race)) +
-  theme_bw(base_size = 25) +
+  geom_point(aes(x = death_age, y = hazard, shape = race, color = race), size = 2.5, fill = "white") +
+  theme_cowplot() + 
   geom_vline(xintercept = 86, linetype = "dashed") +
   theme(legend.position = "bottom") +
   labs(
@@ -91,6 +64,7 @@ pooled_bwcrossover <- estimated_mortality_rates %>%
     title = "Mortality Crossovers (Men)",
     subtitle = "Pooled cohorts of 1890 - 1905"
   ) +
+    scale_shape_manual(values = c(21, 24)) + 
   ggsci::scale_colour_lancet() +
   theme(legend.title = element_blank()) +
   theme(
@@ -114,11 +88,12 @@ estimated_mortality_rates_noheap <- dmf %>%
 pooled_bwcrossover_noheap <- estimated_mortality_rates_noheap %>%
   filter(death_age %in% c(75:100)) %>%
   ggplot() +
-  geom_point(aes(x = death_age, y = hazard, shape = race, color = race), size = 4) +
   geom_line(aes(x = death_age, y = hazard, color = race)) +
-  theme_bw(base_size = 25) +
+  geom_point(aes(x = death_age, y = hazard, shape = race, color = race), size = 2.5, fill = "white") +
+  cowplot::theme_cowplot() +
   geom_vline(xintercept = 86, linetype = "dashed") +
   theme(legend.position = "bottom") +
+  scale_shape_manual(values = c(21, 24)) + 
   labs(
     x = "Age",
     y = "Log(Mx)",
@@ -137,14 +112,14 @@ pooled_bwcrossover_noheap <- estimated_mortality_rates_noheap %>%
 
 crossover_figure <- plot_grid(pooled_bwcrossover, pooled_bwcrossover_noheap, labels = "auto", ncol = 1)
 
-ggsave(plot = crossover_figure, filename = here("figures/bw_crossover.pdf"), width = 15, height = 20)
+ggsave(plot = crossover_figure, filename = here("figures/bw_crossover.png"), width = 7.5, height = 10)
 ```
-
 
 ## education 
 
 ```{r}
-estimated_mortality_rates <- dmf %>%
+## Calculate mortality rates — high education 
+mortality_rates_higheduc <- dmf %>%
   filter(educ_yrs >= 8) %>%
   filter(byear %in% c(1890:1905)) %>%
   filter(race == "White Americans" | race == "Black Americans") %>%
@@ -156,20 +131,22 @@ estimated_mortality_rates <- dmf %>%
   mutate(hazard = log(mx)) %>%
   mutate(hazard_avg = zoo::rollmean(x = hazard, k = 3, na.pad = T))
 
-pooled_bwcrossover_highed <- estimated_mortality_rates %>%
+## Plot — low education  
+pooled_bwcrossover_highed <- mortality_rates_higheduc %>%
   filter(death_age %in% c(75:100)) %>%
   ggplot() +
-  geom_point(aes(x = death_age, y = hazard_avg, shape = race, color = race), size = 4) +
-  geom_line(aes(x = death_age, y = hazard_avg, color = race)) +
-  theme_bw(base_size = 25) +
+  geom_line(aes(x = death_age, y = hazard, color = race)) +
+  geom_point(aes(x = death_age, y = hazard, shape = race, color = race), size = 2.5, fill = "white") +
+  theme_cowplot() + 
   geom_vline(xintercept = 86, linetype = "dashed") +
   theme(legend.position = "bottom") +
   labs(
     x = "Age",
     y = "Log(Mx)",
-    title = "Mortality Crossovers (Men)",
-    subtitle = "High Education (HS+) Homeowners, Pooled cohorts of 1890 - 1905"
+    title = "Mortality Crossovers (8+ years education)",
+    subtitle = "Pooled cohorts of 1890 - 1905"
   ) +
+    scale_shape_manual(values = c(21, 24)) + 
   ggsci::scale_colour_lancet() +
   theme(legend.title = element_blank()) +
   theme(
@@ -180,10 +157,9 @@ pooled_bwcrossover_highed <- estimated_mortality_rates %>%
     legend.background = element_rect(color = "black", size = .5, linetype = "solid")
   )
 
-
-## estimate mortality rate
-estimated_mortality_rates <- dmf %>%
-  filter(educ <= 8) %>%
+## Calculate mortality rates — low education 
+mortality_rates_loweduc <- dmf %>%
+  filter(educ < 8) %>%
   filter(byear %in% c(1890:1905)) %>%
   filter(race == "White Americans" | race == "Black Americans") %>%
   group_by(death_age, race) %>%
@@ -194,20 +170,22 @@ estimated_mortality_rates <- dmf %>%
   mutate(hazard = log(mx)) %>%
   mutate(hazard_avg = zoo::rollmean(x = hazard, k = 3, na.pad = T))
 
-pooled_bwcrossover_lowed <- estimated_mortality_rates %>%
+## Plot low education  
+pooled_bwcrossover_loweduc <- mortality_rates_loweduc %>%
   filter(death_age %in% c(75:100)) %>%
   ggplot() +
-  geom_point(aes(x = death_age, y = hazard_avg, shape = race, color = race), size = 4) +
-  geom_line(aes(x = death_age, y = hazard_avg, color = race)) +
-  theme_bw(base_size = 25) +
+  geom_line(aes(x = death_age, y = hazard, color = race)) +
+  geom_point(aes(x = death_age, y = hazard, shape = race, color = race), size = 2.5, fill = "white") +
+  theme_cowplot() + 
   geom_vline(xintercept = 86, linetype = "dashed") +
   theme(legend.position = "bottom") +
   labs(
     x = "Age",
     y = "Log(Mx)",
-    title = "Mortality Crossovers (Men)",
-    subtitle = "Low education (no HS) Renters, Pooled cohorts of 1890 - 1905"
+    title = "Mortality Crossovers (<8 years education)",
+    subtitle = "Pooled cohorts of 1890 - 1905"
   ) +
+    scale_shape_manual(values = c(21, 24)) + 
   ggsci::scale_colour_lancet() +
   theme(legend.title = element_blank()) +
   theme(
@@ -218,12 +196,14 @@ pooled_bwcrossover_lowed <- estimated_mortality_rates %>%
     legend.background = element_rect(color = "black", size = .5, linetype = "solid")
   )
 
-crossover_figure <- plot_grid(pooled_bwcrossover_lowed, pooled_bwcrossover_highed, labels = "auto", ncol = 1)
+## crossover figures 
+crossover_figure <- plot_grid(pooled_bwcrossover_loweduc, pooled_bwcrossover_highed, labels = "auto", ncol = 1)
 
-ggsave(plot = crossover_figure, filename = here("figures/bw_crossover_education.pdf"), width = 15, height = 20)
+## create plot 
+ggsave(plot = crossover_figure, filename = here("figures/bw_crossover_education.png"), width = 7.5, height = 10)
 ```
 
-
+## income 
 
 ```{r}
 ## estimate mortality rate
@@ -242,17 +222,18 @@ estimated_mortality_rates <- dmf %>%
 pooled_bwcrossover_highinc <- estimated_mortality_rates %>%
   filter(death_age %in% c(75:100)) %>%
   ggplot() +
-  geom_point(aes(x = death_age, y = hazard, shape = race, color = race), size = 4) +
   geom_line(aes(x = death_age, y = hazard, color = race)) +
-  theme_bw(base_size = 25) +
+  geom_point(aes(x = death_age, y = hazard, shape = race, color = race), size = 2.5, fill = "white") +
+  theme_cowplot() + 
   geom_vline(xintercept = 86, linetype = "dashed") +
   theme(legend.position = "bottom") +
   labs(
     x = "Age",
     y = "Log(Mx)",
-    title = "Mortality Crossovers (Men)",
+    title = "Mortality Crossovers (high income)",
     subtitle = "Pooled cohorts of 1890 - 1905"
   ) +
+    scale_shape_manual(values = c(21, 24)) + 
   ggsci::scale_colour_lancet() +
   theme(legend.title = element_blank()) +
   theme(
@@ -277,19 +258,20 @@ estimated_mortality_rates <- dmf %>%
 #  mutate(hazard_avg = zoo::rollmean(x = hazard, k = 3, na.pad = T))
 
 pooled_bwcrossover_lowinc <- estimated_mortality_rates %>%
-  filter(death_age %in% c(75:120)) %>%
+  filter(death_age %in% c(75:100)) %>%
   ggplot() +
-  geom_point(aes(x = death_age, y = hazard, shape = race, color = race), size = 4) +
   geom_line(aes(x = death_age, y = hazard, color = race)) +
-  theme_bw(base_size = 25) +
+  geom_point(aes(x = death_age, y = hazard, shape = race, color = race), size = 2.5, fill = "white") +
+  theme_cowplot() + 
   geom_vline(xintercept = 86, linetype = "dashed") +
   theme(legend.position = "bottom") +
   labs(
     x = "Age",
     y = "Log(Mx)",
-    title = "Mortality Crossovers (Men)",
+    title = "Mortality Crossovers (low income)",
     subtitle = "Pooled cohorts of 1890 - 1905"
   ) +
+    scale_shape_manual(values = c(21, 24)) + 
   ggsci::scale_colour_lancet() +
   theme(legend.title = element_blank()) +
   theme(
@@ -299,10 +281,110 @@ pooled_bwcrossover_lowinc <- estimated_mortality_rates %>%
     legend.margin = margin(6, 6, 6, 6),
     legend.background = element_rect(color = "black", size = .5, linetype = "solid")
   )
+
+## crossover figures 
+crossover_figure <- plot_grid(pooled_bwcrossover_highinc, pooled_bwcrossover_lowinc, labels = "auto", ncol = 1)
+
+## create plot 
+ggsave(plot = crossover_figure, filename = here("figures/bw_crossover_income.png"), width = 7.5, height = 10)
+```
+
+## Homeownership 
+
+```{r}
+## estimate mortality rate
+mr_ownhome <- dmf %>%
+  filter(ownershp == 1) %>%
+  filter(byear %in% c(1890:1905)) %>%
+  filter(race == "White Americans" | race == "Black Americans") %>%
+  group_by(death_age, race) %>%
+  summarize(weighted_total = n()) %>%
+  group_by(race) %>%
+  mutate(lx = sum(weighted_total) - cumsum(weighted_total) + weighted_total) %>%
+  mutate(mx = weighted_total / (lx + lead(lx) / 2)) %>%
+  mutate(hazard = log(mx)) # %>%
+#  mutate(hazard_avg = zoo::rollmean(x = hazard, k = 3, na.pad = T))
+
+pooled_bwcrossover_home_own <- mr_ownhome %>%
+  filter(death_age %in% c(75:100)) %>%
+  ggplot() +
+  geom_line(aes(x = death_age, y = hazard, color = race)) +
+  geom_point(aes(x = death_age, y = hazard, shape = race, color = race), size = 2.5, fill = "white") +
+  theme_cowplot() + 
+  geom_vline(xintercept = 86, linetype = "dashed") +
+  theme(legend.position = "bottom") +
+  labs(
+    x = "Age",
+    y = "Log(Mx)",
+    title = "Mortality Crossovers (Homeowner)",
+    subtitle = "Pooled cohorts of 1890 - 1905"
+  ) +
+    scale_shape_manual(values = c(21, 24)) + 
+  ggsci::scale_colour_lancet() +
+  theme(legend.title = element_blank()) +
+  theme(
+    legend.position = c(.999, 0.001),
+    legend.justification = c("right", "bottom"),
+    legend.box.just = "right",
+    legend.margin = margin(6, 6, 6, 6),
+    legend.background = element_rect(color = "black", size = .5, linetype = "solid")
+  )
+
+## estimate mortality rate
+mr_rent <- dmf %>%
+  filter(ownershp == 2) %>%
+  filter(byear %in% c(1890:1905)) %>%
+  filter(race == "White Americans" | race == "Black Americans") %>%
+  group_by(death_age, race) %>%
+  summarize(weighted_total = n()) %>%
+  group_by(race) %>%
+  mutate(lx = sum(weighted_total) - cumsum(weighted_total) + weighted_total) %>%
+  mutate(mx = weighted_total / (lx + lead(lx) / 2)) %>%
+  mutate(hazard = log(mx)) # %>%
+#  mutate(hazard_avg = zoo::rollmean(x = hazard, k = 3, na.pad = T))
+
+pooled_bwcrossover_home_rent <- mr_rent %>%
+  filter(death_age %in% c(75:100)) %>%
+  ggplot() +
+  geom_line(aes(x = death_age, y = hazard, color = race)) +
+  geom_point(aes(x = death_age, y = hazard, shape = race, color = race), size = 2.5, fill = "white") +
+  theme_cowplot() + 
+  geom_vline(xintercept = 86, linetype = "dashed") +
+  theme(legend.position = "bottom") +
+  labs(
+    x = "Age",
+    y = "Log(Mx)",
+    title = "Mortality Crossovers (Renter)",
+    subtitle = "Pooled cohorts of 1890 - 1905"
+  ) +
+    scale_shape_manual(values = c(21, 24)) + 
+  ggsci::scale_colour_lancet() +
+  theme(legend.title = element_blank()) +
+  theme(
+    legend.position = c(.999, 0.001),
+    legend.justification = c("right", "bottom"),
+    legend.box.just = "right",
+    legend.margin = margin(6, 6, 6, 6),
+    legend.background = element_rect(color = "black", size = .5, linetype = "solid")
+  )
+
+## crossover figures 
+crossover_figure <- plot_grid(pooled_bwcrossover_home_own, pooled_bwcrossover_home_rent, labels = "auto", ncol = 1)
+
+## create plot 
+ggsave(plot = crossover_figure, filename = here("figures/bw_crossover_homeowner.png"), width = 7.5, height = 10)
+```
+
+## combine plot 
+
+```{r}
+bw_crossover_subgroups <- plot_grid(pooled_bwcrossover_loweduc, pooled_bwcrossover_highed, pooled_bwcrossover_highinc, pooled_bwcrossover_lowinc, pooled_bwcrossover_home_own, pooled_bwcrossover_home_rent, labels = "auto", ncol = 2)
+
+ggsave(plot = bw_crossover_subgroups, filename = here("figures/bw_crossover_subgroups.png"), width = 10, height = 14)
 ```
 
 
-
+## SES Crossovers 
 
 ```{r}
 ## estimate mortality rate
@@ -386,193 +468,12 @@ pooled_bwcrossover_income <- estimated_mortality_rates %>%
     legend.background = element_rect(color = "black", size = .5, linetype = "solid")
   )
 
-
 crossover_figure_ses <- plot_grid(pooled_bwcrossover_education, pooled_bwcrossover_income, labels = "auto", ncol = 1)
 
-ggsave(plot = crossover_figure_ses, filename = here("figures/ses_crossover.pdf"), width = 15, height = 20)
-```
-
-
-
-
-```{r}
-dmf %>%
-  filter(incwage %in% 1:5030) %>%
-  filter(byear %in% c(1909:1911)) %>%
-  filter(death_age %in% c(70:90)) %>%
-  filter(!is.na(race)) %>%
-  group_by(race, death_age) %>%
-  summarize(wage = mean(incwage)) %>%
-  ggplot(aes(x = death_age, y = wage, color = race)) +
-  geom_point() +
-  geom_line() +
-  geom_smooth(method = "lm") +
-  theme_cowplot()
-
-
-dmf %>%
-  filter(!is.na(educ_yrs)) %>%
-  filter(byear %in% c(1909:1911)) %>%
-  filter(death_age %in% c(70:90)) %>%
-  filter(!is.na(race)) %>%
-  group_by(race, death_age) %>%
-  summarize(wage = mean(educ_yrs)) %>%
-  ggplot(aes(x = death_age, y = wage, color = race)) +
-  geom_point() +
-  geom_line() +
-  geom_smooth(method = "lm") +
-  theme_cowplot()
+ggsave(plot = crossover_figure_ses, filename = here("figures/ses_crossover.png"), width = 15, height = 20)
 ```
 
 
 
 
 
-
-
-
-```{r}
-dmf %>%
-  filter(byear %in% c(1920)) %>%
-  filter(race == "White Americans" | race == "Black Americans") %>%
-  group_by(race, educ_yrs) %>%
-  summarize(death_age = mean(death_age)) %>%
-  ggplot(aes(x = educ_yrs, y = death_age, color = race)) +
-  geom_point() +
-  cowplot::theme_cowplot()
-```
-
-
-```{r}
-dmf %>%
-  filter(byear %in% c(1911)) %>%
-  filter(race == "White Americans" | race == "Black Americans") %>%
-  mutate(old = case_when(
-    death_age >= 85 ~ "85+",
-    TRUE ~ "<85"
-  )) %>%
-  group_by(race, educ_yrs, old) %>%
-  summarize(death_age = mean(death_age)) %>%
-  ggplot(aes(x = educ_yrs, y = death_age, color = race)) +
-  geom_point() +
-  cowplot::theme_cowplot() +
-  facet_wrap(~old)
-```
-
-
-```{r}
-dmf %>%
-  filter(byear %in% c(1911)) %>%
-  filter(race == "White Americans" | race == "Black Americans") %>%
-  mutate(old = case_when(
-    death_age >= 85 ~ "85+",
-    TRUE ~ "<85"
-  )) %>%
-  mutate(hs = case_when(
-    educ_yrs >= 12 ~ "HS",
-    TRUE ~ "No HS "
-  )) %>%
-  group_by(race, old, hs) %>%
-  summarize(death_age = mean(death_age)) %>%
-  ggplot(aes(x = race, y = death_age, color = hs)) +
-  geom_point() +
-  cowplot::theme_cowplot() +
-  facet_wrap(~old, scales = "free")
-```
-
-
-```{r}
-dmf_model <- dmf %>%
-  filter(byear %in% c(1905:1915)) %>%
-  filter(race == "White Americans" | race == "Black Americans") %>%
-  mutate(old = case_when(
-    death_age >= 85 ~ "85+",
-    TRUE ~ "<85"
-  )) %>%
-  mutate(hs = case_when(
-    educ_yrs >= 12 ~ "HS",
-    TRUE ~ "No HS "
-  ))
-
-summary(lm(death_age ~ race + as.factor(byear), data = dmf_model %>% filter(death_age > 85)))
-```
-
-```{r}
-dmf_model <- dmf %>%
-  filter(byear %in% c(1900:1910)) %>%
-  filter(race == "White Americans" | race == "Black Americans") %>%
-  mutate(old = case_when(
-    death_age >= 85 ~ "85+",
-    TRUE ~ "<85"
-  )) %>%
-  mutate(hs = case_when(
-    educ_yrs >= 12 ~ "HS",
-    TRUE ~ "No HS"
-  ))
-
-summary(lm(death_age ~ race + as.factor(byear), data = dmf_model %>% filter(death_age > 85 & death_age < 95)))
-summary(lm(death_age ~ race + as.factor(byear), data = dmf_model %>% filter(death_age > 75 & death_age < 85)))
-summary(lm(death_age ~ race + as.factor(byear), data = dmf_model %>% filter(death_age > 65 & death_age < 75)))
-```
-
-```{r}
-summary(lm(death_age ~ race + as.factor(byear), data = dmf_model %>% filter(death_age > 85 & death_age < 95) %>% filter(educ_yrs > 12)))
-```
-
-
-
-```{r}
-dmf %>%
-  filter(!is.na(educ_yrs)) %>%
-  filter(byear %in% c(1915:1920)) %>%
-  group_by(death_age, race) %>%
-  summarize(educ_yrs = mean(educ_yrs)) %>%
-  filter(!is.na(race)) %>%
-  ggplot(aes(x = death_age, y = educ_yrs, color = race)) +
-  geom_point() +
-  cowplot::theme_cowplot()
-```
-
-
-
-```{r}
-estimated_mortality_rates <- dmf %>%
-  # filter(incwage %in% 0:5050) %>%
-  mutate(high_educ = case_when(
-    educ_yrs %in% 0:4 ~ "low",
-    TRUE ~ "high"
-  )) %>%
-  filter(byear %in% c(1890:1905)) %>%
-  filter(race == "Black Americans") %>%
-  group_by(death_age, high_educ) %>%
-  summarize(weighted_total = n()) %>%
-  group_by(high_educ) %>%
-  mutate(lx = sum(weighted_total) - cumsum(weighted_total) + weighted_total) %>%
-  mutate(mx = weighted_total / (lx + lead(lx) / 2)) %>%
-  mutate(hazard = log(mx))
-
-
-pooled_bwcrossover_education <- estimated_mortality_rates %>%
-  filter(death_age %in% c(75:100)) %>%
-  ggplot(aes(x = death_age, y = hazard, shape = high_educ, color = high_educ)) +
-  geom_point(size = 4) +
-  geom_line() +
-  theme_bw(base_size = 25) +
-  geom_vline(xintercept = 95, linetype = "dashed") +
-  theme(legend.position = "bottom") +
-  labs(
-    x = "Age",
-    y = "Log(Mx)",
-    title = "Education - Mortality Crossovers (Men)",
-    subtitle = "Pooled cohorts of 1890 - 1905"
-  ) +
-  ggsci::scale_colour_lancet() +
-  theme(legend.title = element_blank()) +
-  theme(
-    legend.position = c(.999, 0.001),
-    legend.justification = c("right", "bottom"),
-    legend.box.just = "right",
-    legend.margin = margin(6, 6, 6, 6),
-    legend.background = element_rect(color = "black", size = .5, linetype = "solid")
-  )
-```

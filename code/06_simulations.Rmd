@@ -1,6 +1,5 @@
 ---
 title: "R Notebook"
-output: html_notebook
 ---
 
 
@@ -20,8 +19,8 @@ coefs = c('sex'=.5), dummy=c(TRUE)) %>% mutate(death_age = floor(death_age))
 test3 <- gompertztrunc_simu(n=1000000, a0 = .00003, b = .1, formula = death_age ~ sex,
 coefs = c('sex'=.5), dummy=c(TRUE)) %>% mutate(death_age = floor(death_age))
 
-df1 <- test1
-df2 <- bind_rows(test2, test3)
+df1 <- test1 %>% mutate(type = "stable")
+df2 <- bind_rows(test2, test3) %>% mutate(type = "mix")
 
 stable_pop <- df1 %>% 
   mutate(death_age = round(death_age)) %>% 
@@ -80,7 +79,8 @@ test_df <- df1 %>%
   bind_rows(df2)
   
 df_list <- list()
-for (i in min(test_df$death_age):max(test_df$death_age)){
+
+for (i in min(test_df$death_age + 1):max(test_df$death_age)){
 
     ## covariates  
     df_list[[i]] <- test_df %>% 
@@ -90,6 +90,8 @@ for (i in min(test_df$death_age):max(test_df$death_age)){
       group_by(type) %>% 
       mutate(prop = n / sum(n),
              age = i)
+    
+    cat(i)
     
 }
 

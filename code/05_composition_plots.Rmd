@@ -1,0 +1,422 @@
+---
+title: "B-W Crossover Paper"
+---
+
+Summary: Black-White mortality crossover paper 
+
+```{r}
+## library packages 
+library(tidyverse)
+library(data.table)
+library(here)
+library(cowplot)
+
+## read in dmf 
+dmf <- fread(here("data/censoc_dmf_v2.1_linked.csv"))
+
+## recode race 
+## restrict to conservative matches 
+## restrict to people born in the US 
+dmf <- dmf %>%
+  janitor::clean_names() %>%
+  mutate(race = case_when(
+    race == 1 ~ "White Americans",
+    race == 2 ~ "Black Americans"
+  )) %>%
+  filter(link_abe_exact_conservative == 1) %>%
+  filter(bpl < 15000)
+
+## recode education
+dmf <- dmf %>%
+  censocdev::recode_education(educ_var = educd) 
+
+## recode values 
+dmf <- dmf %>% 
+  filter(!is.na(educ_yrs)) %>% 
+  filter(incwage %in% 0:5050) %>% 
+  filter(!is.na(sei)) %>% 
+  mutate(marst = as.factor(marst)) %>% 
+  filter(marst != 3) %>% 
+  mutate(own_home = case_when(
+    ownershp == 1 ~ 1,
+    TRUE ~ 0
+  ),
+  married = case_when(
+    marst %in% 1:2 ~ 1,
+    TRUE ~ 0
+  ),
+  employed = case_when(
+   empstat == 1 ~ 1,
+    TRUE ~ 0
+  ),
+  south = case_when(
+    region %in% 31:34 ~ 1,
+    TRUE ~ 0
+  ))
+```
+
+```{r}
+dmf_1911 <- dmf %>% 
+  filter(byear %in% 1911)
+
+model_black <- lm(death_age ~ sei + educ_yrs + incwage  + marst + empstat , data = dmf_1911 %>% filter(race == "Black Americans"))
+
+model_white <- lm(death_age ~ sei + educ_yrs + incwage  + marst + empstat , data = dmf_1911 %>% filter(race == "White Americans"))
+
+modeling_df_white <- dmf %>% 
+  filter(race == "White Americans") %>% 
+  filter(byear %in% 1909:1911) %>% 
+  modelr::add_predictions(model = model_white)
+
+modeling_df_black <- dmf %>% 
+  filter(race == "Black Americans") %>% 
+  filter(byear %in% 1909:1911) %>% 
+  modelr::add_predictions(model = model_black)
+
+modeling_df <- bind_rows(modeling_df_white, modeling_df_black) %>% 
+  group_by(race) %>% 
+  mutate(risk = 101-ntile(pred, 100))
+```
+
+```{r}
+results <- list()
+
+for (i in min(modeling_df$death_age):max(modeling_df$death_age)){
+  
+  ## covariate plots 
+  covariates <- c("employed", "sei", "educ_yrs", "incwage", "own_home",  "south")
+  cov_results_list <- list() 
+  
+  for (cov in covariates) {
+    
+    ## covariates  
+    cov_results_list[[cov]] <- modeling_df %>% 
+      filter(death_age >= i) %>% 
+      group_by(race) %>% 
+      summarize(risk_avg = mean(!!rlang::sym(cov)),
+                se = sd(!!rlang::sym(cov)/ sqrt(n()))) %>% 
+      mutate(death_age = i,
+             covariate = cov)
+  }
+    
+  results[[i]] <-  bind_rows(cov_results_list) 
+
+}
+
+risk_plot_composition <- bind_rows(results) %>% 
+  mutate(covariate = case_when(
+    covariate == "employed" ~ "Employed (%)",
+    covariate == "own_home" ~ "Own Home (%)",
+    covariate == "south" ~ "South (%)",
+    covariate == "educ_yrs" ~ "Education (Yrs)",
+    covariate == "sei" ~ "Socioeconomic Index",
+    covariate == "incwage" ~ "Wage and Salary Income"
+  )) %>% 
+  filter(death_age %in% 60:90) %>% 
+  ggplot(aes(x = death_age,
+             y = risk_avg, 
+             ymin = risk_avg - 1.96*se,
+             ymax = risk_avg + 1.96*se,
+             color = race,
+             shape = race)) + 
+  geom_line() +
+  geom_pointrange(fill = "white") + 
+  # geom_smooth(method = "lm", se= F) + 
+  theme_cowplot() + 
+  ggsci::scale_color_lancet() + 
+  labs(x = "Age",
+       y = "Risk Score",
+       title = "Characteristics of the living by age") + 
+  theme(legend.position = "bottom") + 
+    scale_shape_manual(values = c(21, 24)) + 
+  facet_wrap(~covariate, scales = "free", nrow =3)
+ 
+ggsave(plot = risk_plot_composition, filename = "../figures/risk_plot_composition.png", height = 10, width = 8)
+```
+
+```{r}
+results_df <- bind_rows(results)
+
+employment_plot <- results_df %>% 
+  filter(covariate == "employed") %>% 
+  filter(death_age %in% 60:90) %>% 
+  ggplot(aes(x = death_age,
+             y = risk_avg, 
+             ymin = risk_avg - 1.96*se,
+             ymax = risk_avg + 1.96*se,
+             color = race,
+             shape = race)) + 
+  geom_line() +
+  geom_pointrange(fill = "white") + 
+  theme_cowplot() + 
+  scale_y_continuous(labels = scales::percent) + 
+  ggsci::scale_color_lancet() + 
+  labs(x = "Age",
+       y = "Employed",
+       title = "Employed") + 
+  theme(legend.position = "bottom") + 
+  scale_shape_manual(values = c(21, 24))
+
+## socioeconomic status index plot  
+sei_plot <- results_df %>% 
+  filter(covariate == "sei") %>% 
+  filter(death_age %in% 60:90) %>% 
+  ggplot(aes(x = death_age,
+             y = risk_avg, 
+             ymin = risk_avg - 1.96*se,
+             ymax = risk_avg + 1.96*se,
+             color = race,
+             shape = race)) + 
+  geom_line() +
+  geom_pointrange(fill = "white") + 
+  theme_cowplot() + 
+  ggsci::scale_color_lancet() + 
+  labs(x = "Age",
+       y = "SEI Score",
+       title = "Socioeconomic Index Score") + 
+  theme(legend.position = "bottom") + 
+  scale_shape_manual(values = c(21, 24))
+
+## education years plot  
+educ_yrs_plot <- results_df %>% 
+  filter(covariate == "educ_yrs") %>% 
+  filter(death_age %in% 60:90) %>% 
+  ggplot(aes(x = death_age,
+             y = risk_avg, 
+             ymin = risk_avg - 1.96*se,
+             ymax = risk_avg + 1.96*se,
+             color = race,
+             shape = race)) + 
+  geom_line() +
+  geom_pointrange(fill = "white") + 
+  theme_cowplot() + 
+  ggsci::scale_color_lancet() + 
+  labs(x = "Age",
+       y = "Education (years)",
+       title = "Educational Attainment") + 
+  theme(legend.position = "bottom") + 
+  scale_shape_manual(values = c(21, 24))
+
+## wage and salary income 
+incwage_plot <- results_df %>% 
+  filter(covariate == "incwage") %>% 
+  filter(death_age %in% 60:90) %>% 
+  ggplot(aes(x = death_age,
+             y = risk_avg, 
+             ymin = risk_avg - 1.96*se,
+             ymax = risk_avg + 1.96*se,
+             color = race,
+             shape = race)) + 
+  geom_line() +
+  geom_pointrange(fill = "white") + 
+  theme_cowplot() + 
+  ggsci::scale_color_lancet() + 
+  labs(x = "Age",
+       y = "Income",
+       title = "Wage and Salary Income") + 
+  theme(legend.position = "bottom") + 
+  scale_shape_manual(values = c(21, 24))
+
+## own home 
+homeownership_plot <- results_df %>% 
+  filter(covariate == "own_home") %>% 
+  filter(death_age %in% 60:90) %>% 
+  ggplot(aes(x = death_age,
+             y = risk_avg, 
+             ymin = risk_avg - 1.96*se,
+             ymax = risk_avg + 1.96*se,
+             color = race,
+             shape = race)) + 
+  geom_line() +
+  geom_pointrange(fill = "white") + 
+  theme_cowplot() + 
+  ggsci::scale_color_lancet() + 
+  scale_y_continuous(labels = scales::percent) + 
+  labs(x = "Age",
+       y = "Own Home",
+       title = "Homeowner Status") + 
+  theme(legend.position = "bottom") + 
+  scale_shape_manual(values = c(21, 24))
+
+## own home 
+south_plot <- results_df %>% 
+  filter(covariate == "own_home") %>% 
+  filter(death_age %in% 60:90) %>% 
+  ggplot(aes(x = death_age,
+             y = risk_avg, 
+             ymin = risk_avg - 1.96*se,
+             ymax = risk_avg + 1.96*se,
+             color = race,
+             shape = race)) + 
+  geom_line() +
+  geom_pointrange(fill = "white") + 
+  theme_cowplot() + 
+  ggsci::scale_color_lancet() + 
+  scale_y_continuous(labels = scales::percent) + 
+  labs(x = "Age",
+       y = "Lives in South",
+       title = "Lives in South") + 
+  theme(legend.position = "bottom") + 
+  scale_shape_manual(values = c(21, 24))
+
+
+characteristics_of_living_plot <- cowplot::plot_grid(employment_plot, sei_plot, educ_yrs_plot, incwage_plot, homeownership_plot, south_plot, ncol = 2, labels = "auto")
+
+ggsave(plot = characteristics_of_living_plot, filename = "../figures/risk_plot_composition.png", height = 12, width = 10)
+```
+
+
+
+```{r}
+## covariate plots 
+  covariates <- c("employed", "sei", "educ_yrs", "incwage", "own_home",  "south")
+  cov_results_list <- list() 
+  
+  for (cov in covariates) {
+    
+    ## covariates  
+    cov_results_list[[cov]] <- modeling_df %>% 
+      filter(death_age >= i) %>% 
+      group_by(race) %>% 
+      summarize(risk_avg = mean(!!rlang::sym(cov)),
+                se = sd(!!rlang::sym(cov)/ sqrt(n()))) %>% 
+      mutate(death_age = i,
+             covariate = cov)
+  }
+    
+  results[[i]] <-  bind_rows(cov_results_list) 
+```
+
+
+
+
+
+## education analysis 
+```{r}
+educ_data <- dmf %>% 
+  filter(byear %in% 1910) %>% 
+  filter(death_age %in% c(0:90)) %>% 
+  filter(!is.na(educ_yrs)) %>% 
+  filter(!is.na(race)) %>% 
+  mutate(educ_categorical = case_when(
+    educ_yrs %in% 0:5 ~ "No Elementary",
+    educ_yrs %in% 6:7 ~ "Elementary",
+    educ_yrs %in% 8:11 ~ "Middle School",
+    educ_yrs %in% 12:15 ~ "High School",
+    educ_yrs %in% 16:18 ~ "College+",
+  )) 
+
+educ_data_list <- list() 
+
+for (i in min(educ_data$death_age):max(educ_data$death_age)){
+  
+    ## covariates  
+    educ_data_list[[i]] <- educ_data %>% 
+      filter(death_age >= i) %>% 
+      count(race, educ_categorical) %>% 
+      group_by(race) %>% 
+      mutate(prop = n / sum(n),
+             age = i)
+}
+
+education_by_age <- bind_rows(educ_data_list) %>% 
+   mutate(educ_categorical = factor(educ_categorical, levels=c("College+", "High School", "Middle School", "Elementary", "No Elementary"))) %>% 
+  ggplot(aes(x = age, y = prop, fill = educ_categorical)) + 
+  geom_area( colour="black") + 
+  scale_fill_viridis_d(alpha = 0.7) + 
+  facet_wrap(~race) + 
+  theme_cowplot() + 
+  labs(title = "Education of the living by age") + 
+      scale_y_continuous(labels = scales::percent_format(accuracy = 5L)) + 
+  theme(legend.position = "bottom", legend.title = element_blank()) 
+
+ggsave(plot = education_by_age, filename = "../figures/education_of_living.png", height = 6, width = 9)
+
+```
+
+## percentile analysis 
+
+```{r}
+risk_data_list <- list() 
+
+modeling_df <- modeling_df %>% 
+  group_by(race) %>% 
+  mutate(educ_decile = ntile(educ_yrs, 99)  ) %>% 
+  mutate(income_decile = ntile(incwage, 99) ) %>% 
+  ungroup()
+
+for (i in min(modeling_df$death_age):max(modeling_df$death_age)){
+  
+    ## covariates  
+    risk_data_list[[i]] <- modeling_df %>% 
+      filter(death_age >= i) %>% 
+      group_by(race) %>% 
+      summarize(educ_decile_mean = mean(educ_decile),
+                educ_decile_mean_se = sd(educ_decile) / sqrt(n()),
+                income_decile_mean = mean(income_decile),
+                income_decile_mean_se = sd(income_decile) / sqrt(n()),
+                risk_decile_mean = mean(risk)) %>% 
+      mutate(age = i)
+}
+
+education_percentile <- bind_rows(risk_data_list) %>% 
+  filter(age < 90) %>% 
+  ggplot(aes(x = age, y = educ_decile_mean,
+             ymin = educ_decile_mean - 1*educ_decile_mean_se,
+             ymax = educ_decile_mean + 1*educ_decile_mean_se,
+             color = race, shape = race)) + 
+  geom_pointrange(position = position_dodge(width = .2)) + 
+  geom_line() + 
+  theme_cowplot() + 
+  labs(title = "Education",
+       y = "percentile") + 
+  ggsci::scale_color_lancet() + 
+  theme(legend.position = "bottom", legend.title = element_blank()) 
+
+income_percentile <- bind_rows(risk_data_list) %>% 
+  filter(age < 90) %>% 
+  ggplot(aes(x = age,
+             y = income_decile_mean,
+             ymin = income_decile_mean - 1*income_decile_mean_se,
+             ymax = income_decile_mean + 1*income_decile_mean_se,
+             color = race, shape = race)) + 
+  geom_pointrange(position = position_dodge(width = .2)) + 
+  geom_line() + 
+  theme_cowplot() + 
+  labs(title = "Income",
+       y = "percentile") +
+  ggsci::scale_color_lancet() + 
+  theme(legend.position = "bottom", legend.title = element_blank()) 
+
+cowplot::plot_grid(education_percentile, income_percentile, labels = "auto")
+
+
+risk_by_age <- bind_rows(risk_data_list) %>% 
+  filter(age < 91) %>% 
+  ggplot(aes(x = age, y = risk_decile_mean, color = race)) + 
+  geom_point() + 
+  geom_line() + 
+  theme_cowplot() + 
+  labs(title = "Education of the living by age")  + 
+  theme(legend.position = "bottom", legend.title = element_blank()) 
+
+
+risk_by_age <- bind_rows(risk_data_list) %>% 
+  filter(age < 91) %>% 
+  filter(risk_high == "high") %>% 
+  ggplot(aes(x = age, y = prop, color = as.factor(race))) + 
+  geom_point() + 
+  geom_line() + 
+  theme_cowplot() + 
+  labs(title = "Education of the living by age") + 
+  theme(legend.position = "bottom", legend.title = element_blank()) 
+```
+
+
+
+
+
+
+
+
+
